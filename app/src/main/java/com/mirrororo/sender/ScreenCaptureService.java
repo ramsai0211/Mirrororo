@@ -9,8 +9,11 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.media.projection.MediaProjection;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -39,7 +42,6 @@ public class ScreenCaptureService extends Service {
     private SurfaceTextureHelper textureHelper;
     private VideoSource videoSource;
     private VideoTrack videoTrack;
-    private MediaProjection projection;
 
     private boolean stopped = false;
     private boolean offerPending = false;
@@ -54,49 +56,59 @@ public class ScreenCaptureService extends Service {
     public int onStartCommand(
             Intent intent, int flags, int startId) {
 
-        Notification notification =
-                new Notification.Builder(this, CHANNEL)
-                        .setContentTitle("Mirrororo")
-                        .setContentText("Screen sharing service")
-                        .setSmallIcon(android.R.drawable.ic_menu_view)
-                        .build();
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(
-                    1,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        } else {
-            startForeground(1, notification);
-        }
-
-        if (intent == null) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-
-        int resultCode = intent.getIntExtra(
-                EXTRA_RESULT_CODE, 0);
-
-        Intent resultData;
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            resultData = intent.getParcelableExtra(
-                    EXTRA_RESULT_DATA, Intent.class);
-        } else {
-            resultData = intent.getParcelableExtra(
-                    EXTRA_RESULT_DATA);
-        }
-
-        if (resultData == null) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-
         try {
+            Notification notification =
+                    new Notification.Builder(this, CHANNEL)
+                            .setContentTitle("Mirrororo")
+                            .setContentText("Starting screen sharing")
+                            .setSmallIcon(
+                                    android.R.drawable.ic_menu_view)
+                            .build();
+
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(
+                        1,
+                        notification,
+                        ServiceInfo
+                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            } else {
+                startForeground(1, notification);
+            }
+
+            if (intent == null) {
+                showError("Service received no screen data");
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+
+            int resultCode = intent.getIntExtra(
+                    EXTRA_RESULT_CODE, 0);
+
+            Intent resultData;
+
+            if (Build.VERSION.SDK_INT >= 33) {
+                resultData = intent.getParcelableExtra(
+                        EXTRA_RESULT_DATA, Intent.class);
+            } else {
+                resultData = intent.getParcelableExtra(
+                        EXTRA_RESULT_DATA);
+            }
+
+            if (resultData == null) {
+                showError("Screen permission data is missing");
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+
             startCapture(resultCode, resultData);
+
         } catch (Exception e) {
-            Log.e(TAG, "Capture startup failed", e);
+            Log.e(TAG, "Service startup failed", e);
+            showError("Startup failed: " + e.getMessage());
+            stopSelf();
+        } catch (Error e) {
+            Log.e(TAG, "Fatal WebRTC error", e);
+            showError("Fatal error: " + e.getClass().getSimpleName());
             stopSelf();
         }
 
@@ -116,7 +128,9 @@ public class ScreenCaptureService extends Service {
         factory = PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(
                         new DefaultVideoEncoderFactory(
-                                egl.getEglBaseContext(), true, true))
+                                egl.getEglBaseContext(),
+                                true,
+                                true))
                 .setVideoDecoderFactory(
                         new DefaultVideoDecoderFactory(
                                 egl.getEglBaseContext()))
@@ -125,13 +139,20 @@ public class ScreenCaptureService extends Service {
         videoSource = factory.createVideoSource(true);
 
         textureHelper = SurfaceTextureHelper.create(
-                "MirrororoCapture", egl.getEglBaseContext());
+                "MirrororoCapture",
+                egl.getEglBaseContext());
+
+        if (textureHelper == null) {
+            throw new IllegalStateException(
+                    "Could not create screen texture");
+        }
 
         capturer = new ScreenCapturerAndroid(
                 resultData,
                 new MediaProjection.Callback() {
                     @Override
                     public void onStop() {
+                        Log.i(TAG, "Screen capture stopped");
                         stopSelf();
                     }
                 });
@@ -150,11 +171,13 @@ public class ScreenCaptureService extends Service {
                 new PeerConnection.RTCConfiguration(
                         Collections.singletonList(
                                 PeerConnection.IceServer
-                                        .builder("stun:stun.l.google.com:19302")
+                                        .builder(
+                                          "stun:stun.l.google.com:19302")
                                         .createIceServer()));
 
         peer = factory.createPeerConnection(
-                config, new PeerConnection.Observer() {
+                config,
+                new PeerConnection.Observer() {
 
             @Override
             public void onIceCandidate(IceCandidate candidate) {
@@ -167,7 +190,7 @@ public class ScreenCaptureService extends Service {
                             candidate.sdpMLineIndex);
                     sendMessage(msg);
                 } catch (Exception e) {
-                    Log.e(TAG, "ICE error", e);
+                    Log.e(TAG, "ICE candidate error", e);
                 }
             }
 
@@ -178,7 +201,7 @@ public class ScreenCaptureService extends Service {
             @Override
             public void onIceConnectionChange(
                     PeerConnection.IceConnectionState state) {
-                Log.i(TAG, "ICE: " + state);
+                Log.i(TAG, "ICE state: " + state);
             }
 
             @Override
@@ -212,7 +235,7 @@ public class ScreenCaptureService extends Service {
 
         if (peer == null) {
             throw new IllegalStateException(
-                    "Could not create WebRTC peer");
+                    "Could not create WebRTC connection");
         }
 
         peer.addTrack(
@@ -232,8 +255,10 @@ public class ScreenCaptureService extends Service {
                     join.put("type", "join");
                     join.put("room", ROOM);
                     send(join.toString());
+                    Log.i(TAG, "Joined room " + ROOM);
                 } catch (Exception e) {
-                    Log.e(TAG, "Join failed", e);
+                    Log.e(TAG, "Room join error", e);
+                    showError("Could not join room");
                 }
             }
 
@@ -245,8 +270,10 @@ public class ScreenCaptureService extends Service {
 
                     if ("peer-joined".equals(type)) {
                         createOffer();
+
                     } else if ("offer".equals(type)) {
                         acceptOffer(msg);
+
                     } else if ("answer".equals(type)) {
                         SessionDescription answer =
                                 new SessionDescription(
@@ -255,6 +282,7 @@ public class ScreenCaptureService extends Service {
 
                         peer.setRemoteDescription(
                                 new SdpObserverAdapter(), answer);
+
                     } else if ("candidate".equals(type)) {
                         String candidateText =
                                 msg.optString("candidate", "");
@@ -263,13 +291,16 @@ public class ScreenCaptureService extends Service {
                                 && peer != null) {
                             peer.addIceCandidate(
                                     new IceCandidate(
-                                            msg.optString("sdpMid", "0"),
-                                            msg.optInt("sdpMLineIndex", 0),
+                                            msg.optString(
+                                                    "sdpMid", "0"),
+                                            msg.optInt(
+                                                    "sdpMLineIndex", 0),
                                             candidateText));
                         }
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Message error", e);
+                    Log.e(TAG, "Signaling message error", e);
+                    showError("Connection message error");
                 }
             }
 
@@ -281,7 +312,8 @@ public class ScreenCaptureService extends Service {
 
             @Override
             public void onError(Exception e) {
-                Log.e(TAG, "Socket error", e);
+                Log.e(TAG, "WebSocket error", e);
+                showError("Server connection failed");
             }
         };
 
@@ -308,8 +340,15 @@ public class ScreenCaptureService extends Service {
                             msg.put("sdp", offer.description);
                             sendMessage(msg);
                         } catch (Exception e) {
-                            Log.e(TAG, "Offer error", e);
+                            Log.e(TAG, "Offer send error", e);
+                            showError("Could not send video offer");
                         }
+                    }
+
+                    @Override
+                    public void onSetFailure(String error) {
+                        Log.e(TAG, "Local SDP error: " + error);
+                        showError("WebRTC setup failed");
                     }
                 }, offer);
             }
@@ -317,7 +356,8 @@ public class ScreenCaptureService extends Service {
             @Override
             public void onCreateFailure(String error) {
                 offerPending = false;
-                Log.e(TAG, "Offer failed: " + error);
+                Log.e(TAG, "Offer creation failed: " + error);
+                showError("Could not create video offer");
             }
         }, new MediaConstraints());
     }
@@ -335,6 +375,7 @@ public class ScreenCaptureService extends Service {
                     @Override
                     public void onCreateSuccess(
                             SessionDescription answer) {
+
                         peer.setLocalDescription(
                                 new SdpObserverAdapter() {
                             @Override
@@ -343,24 +384,50 @@ public class ScreenCaptureService extends Service {
                                     JSONObject response =
                                             new JSONObject();
                                     response.put("type", "answer");
-                                    response.put("sdp",
-                                            answer.description);
+                                    response.put(
+                                            "sdp", answer.description);
                                     sendMessage(response);
                                 } catch (Exception e) {
-                                    Log.e(TAG, "Answer error", e);
+                                    Log.e(TAG, "Answer send error", e);
                                 }
                             }
                         }, answer);
                     }
+
+                    @Override
+                    public void onCreateFailure(String error) {
+                        Log.e(TAG, "Answer creation failed: " + error);
+                        showError("Could not answer video offer");
+                    }
                 }, new MediaConstraints());
+            }
+
+            @Override
+            public void onSetFailure(String error) {
+                Log.e(TAG, "Remote SDP error: " + error);
+                showError("Could not accept video offer");
             }
         }, offer);
     }
 
     private void sendMessage(JSONObject msg) {
-        if (socket != null && socket.isOpen()) {
-            socket.send(msg.toString());
+        WebSocketClient current = socket;
+
+        if (current != null && current.isOpen()) {
+            current.send(msg.toString());
+        } else {
+            Log.w(TAG, "Message not sent: server is disconnected");
         }
+    }
+
+    private void showError(String message) {
+        Log.e(TAG, message);
+
+        new Handler(Looper.getMainLooper()).post(() ->
+                Toast.makeText(
+                        getApplicationContext(),
+                        "Mirrororo: " + message,
+                        Toast.LENGTH_LONG).show());
     }
 
     private void createNotificationChannel() {
@@ -394,7 +461,7 @@ public class ScreenCaptureService extends Service {
                 capturer.stopCapture();
                 capturer.dispose();
             } catch (Exception e) {
-                Log.e(TAG, "Capture cleanup failed", e);
+                Log.e(TAG, "Capture cleanup error", e);
             }
             capturer = null;
         }
@@ -435,4 +502,4 @@ public class ScreenCaptureService extends Service {
         @Override
         public void onSetFailure(String error) {}
     }
-                      }
+}
