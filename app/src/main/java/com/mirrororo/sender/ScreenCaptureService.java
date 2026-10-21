@@ -37,9 +37,6 @@ public class ScreenCaptureService extends Service {
     private static final String SERVER =
             "wss://mirrororo.onrender.com";
 
-    private final Handler mainHandler =
-            new Handler(Looper.getMainLooper());
-
     private WebSocketClient socket;
     private EglBase eglBase;
     private PeerConnectionFactory factory;
@@ -53,7 +50,6 @@ public class ScreenCaptureService extends Service {
             new ArrayList<>();
 
     private boolean remoteDescriptionSet = false;
-    private boolean stopped = false;
 
     @Override
     public void onCreate() {
@@ -274,6 +270,7 @@ public class ScreenCaptureService extends Service {
                         if ("joined".equals(type)) {
                             Log.i(TAG, "Joined room " + ROOM);
                             createOffer();
+
                         } else if ("answer".equals(type)) {
                             String sdp = data.getString("sdp");
 
@@ -297,6 +294,7 @@ public class ScreenCaptureService extends Service {
                                     new SessionDescription(
                                             SessionDescription.Type.ANSWER,
                                             sdp));
+
                         } else if ("candidate".equals(type)) {
                             IceCandidate candidate =
                                     new IceCandidate(
@@ -310,6 +308,7 @@ public class ScreenCaptureService extends Service {
                                 pendingCandidates.add(candidate);
                             }
                         }
+
                     } catch (Exception e) {
                         Log.e(TAG, "Signaling message failed", e);
                     }
@@ -398,6 +397,7 @@ public class ScreenCaptureService extends Service {
 
     private abstract static class SimpleSdpObserver
             implements SdpObserver {
+
         @Override
         public void onCreateSuccess(SessionDescription sdp) {}
 
@@ -434,8 +434,6 @@ public class ScreenCaptureService extends Service {
 
     @Override
     public void onDestroy() {
-        stopped = true;
-
         try {
             if (socket != null) {
                 socket.close();
@@ -443,11 +441,7 @@ public class ScreenCaptureService extends Service {
             }
 
             if (capturer != null) {
-                try {
-                    capturer.stopCapture();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                capturer.stopCapture();
                 capturer.dispose();
                 capturer = null;
             }
@@ -482,6 +476,7 @@ public class ScreenCaptureService extends Service {
                 eglBase.release();
                 eglBase = null;
             }
+
         } catch (Exception e) {
             Log.e(TAG, "Cleanup error", e);
         }
