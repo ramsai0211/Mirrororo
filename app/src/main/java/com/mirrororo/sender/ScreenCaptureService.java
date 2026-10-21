@@ -8,9 +8,13 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 public class ScreenCaptureService extends Service {
 
@@ -19,27 +23,14 @@ public class ScreenCaptureService extends Service {
 
     private static final String TAG = "MirrororoTest";
     private static final String CHANNEL = "mirrororo_capture";
+    private static final int NOTIFICATION_ID = 1;
 
     private MediaProjection projection;
 
     @Override
     public void onCreate() {
         super.onCreate();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL,
-                    "Mirrororo Screen Test",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-
-            NotificationManager manager =
-                    getSystemService(NotificationManager.class);
-
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
+        createNotificationChannel();
     }
 
     @Override
@@ -58,16 +49,17 @@ public class ScreenCaptureService extends Service {
 
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(
-                        1,
+                        NOTIFICATION_ID,
                         notification,
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                 );
             } else {
-                startForeground(1, notification);
+                startForeground(NOTIFICATION_ID, notification);
             }
 
             if (intent == null) {
-                throw new IllegalStateException("Missing intent");
+                throw new IllegalStateException(
+                        "Service intent is missing");
             }
 
             int resultCode = intent.getIntExtra(
@@ -85,18 +77,88 @@ public class ScreenCaptureService extends Service {
 
             if (resultData == null) {
                 throw new IllegalStateException(
-                        "Missing screen permission data");
+                        "Screen permission data is missing");
             }
 
-            MediaProjectionManagerHelper.start(
-                    this, resultCode, resultData);
+            MediaProjectionManager manager =
+                    (MediaProjectionManager)
+                            getSystemService(
+                                    MEDIA_PROJECTION_SERVICE);
+
+            if (manager == null) {
+                throw new IllegalStateException(
+                        "Screen capture manager unavailable");
+            }
+
+            projection = manager.getMediaProjection(
+                    resultCode, resultData);
+
+            if (projection == null) {
+                throw new IllegalStateException(
+                        "Android did not create screen capture");
+            }
+
+            projection.registerCallback(
+                    new MediaProjection.Callback() {
+                        @Override
+                        public void onStop() {
+                            Log.i(TAG, "Screen capture stopped");
+                            stopSelf();
+                        }
+                    },
+                    new Handler(Looper.getMainLooper())
+            );
+
+            Log.i(TAG,
+                    "Screen capture started without WebRTC");
 
         } catch (Exception e) {
             Log.e(TAG, "Screen test failed", e);
+
+            String message = e.getClass().getSimpleName()
+                    + ": " + e.getMessage();
+
+            showError(message);
+            stopSelf();
+
+        } catch (Error e) {
+            Log.e(TAG, "Fatal screen capture error", e);
+
+            showError("Fatal error: "
+                    + e.getClass().getSimpleName());
             stopSelf();
         }
 
         return START_NOT_STICKY;
+    }
+
+    private void showError(String message) {
+        new Handler(Looper.getMainLooper()).post(() ->
+                Toast.makeText(
+                        getApplicationContext(),
+                        "Mirrororo: " + message,
+                        Toast.LENGTH_LONG
+                ).show()
+        );
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL,
+                            "Mirrororo Screen Test",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
+
+            NotificationManager manager =
+                    getSystemService(
+                            NotificationManager.class);
+
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
     }
 
     @Override
@@ -112,29 +174,5 @@ public class ScreenCaptureService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    private static class MediaProjectionManagerHelper {
-
-        static void start(
-                ScreenCaptureService service,
-                int resultCode,
-                Intent resultData) {
-
-            android.media.projection.MediaProjectionManager manager =
-                    (android.media.projection.MediaProjectionManager)
-                            service.getSystemService(
-                                    MEDIA_PROJECTION_SERVICE);
-
-            service.projection =
-                    manager.getMediaProjection(resultCode, resultData);
-
-            if (service.projection == null) {
-                throw new IllegalStateException(
-                        "Android did not create screen capture");
-            }
-
-            Log.i(TAG, "Screen capture started without WebRTC");
-        }
     }
 }
