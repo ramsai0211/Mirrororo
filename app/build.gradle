@@ -1,0 +1,22 @@
+
+plugins {
+    id 'com.android.application' version '8.7.3'
+}
+
+android {
+    namespace 'com.mirrororo.sender'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.mirrororo.sender'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+}
+
+dependencies {
+    implementation 'org.webrtc:google-webrtc:1.0.32006'
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
+}
