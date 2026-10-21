@@ -27,64 +27,49 @@ public class MainActivity extends Activity {
 
         status = new TextView(this);
         status.setTextSize(20);
-        status.setText(
-                "Mirrororo Sender\n\n" +
-                "Room code: MIRRORORO\n\n" +
-                "Tap below to allow screen capture."
-        );
+        status.setText("Mirrororo Sender\n\nRoom: MIRRORORO");
 
         Button start = new Button(this);
         start.setText("Start screen sharing");
-        start.setOnClickListener(v -> requestScreenCapture());
+        start.setOnClickListener(v -> {
+            MediaProjectionManager manager =
+                (MediaProjectionManager) getSystemService(
+                    MEDIA_PROJECTION_SERVICE);
+            startActivityForResult(
+                manager.createScreenCaptureIntent(),
+                CAPTURE_REQUEST);
+        });
 
         layout.addView(status);
         layout.addView(start);
         setContentView(layout);
     }
 
-    private void requestScreenCapture() {
-        MediaProjectionManager manager =
-                (MediaProjectionManager) getSystemService(
-                        MEDIA_PROJECTION_SERVICE);
-
-        startActivityForResult(
-                manager.createScreenCaptureIntent(),
-                CAPTURE_REQUEST
-        );
-    }
-
     @Override
     protected void onActivityResult(
             int requestCode, int resultCode, Intent data) {
-
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode != CAPTURE_REQUEST) return;
+        if (requestCode == CAPTURE_REQUEST
+                && resultCode == RESULT_OK && data != null) {
 
-        if (resultCode == RESULT_OK && data != null) {
             Intent service = new Intent(
-                    this, ScreenCaptureService.class);
-
+                this, ScreenCaptureService.class);
             service.putExtra(
-                    ScreenCaptureService.EXTRA_RESULT_CODE,
-                    resultCode);
-
+                ScreenCaptureService.EXTRA_RESULT_CODE, resultCode);
             service.putExtra(
-                    ScreenCaptureService.EXTRA_RESULT_DATA,
-                    data);
+                ScreenCaptureService.EXTRA_RESULT_DATA, data);
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= 26) {
                 startForegroundService(service);
             } else {
                 startService(service);
             }
 
             status.setText(
-                    "Screen permission granted.\n" +
-                    "Streaming connection is still being built."
-            );
+                "Permission granted. Preparing connection...");
         } else {
-            status.setText("Screen capture permission was denied.");
+            status.setText("Screen sharing permission denied.");
         }
     }
 }
