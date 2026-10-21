@@ -4,56 +4,101 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My Phone TV Mirror</title>
+<title>Mirrororo TV</title>
 <style>
-body {
-  margin: 0;
-  background: #080d1d;
-  color: white;
-  font-family: Arial, sans-serif;
-  text-align: center;
-  padding: 24px;
-}
-h1 { color: #9aa8ff; }
-.panel {
-  background: #17213a;
-  padding: 24px;
-  border-radius: 18px;
-  max-width: 700px;
-  margin: 24px auto;
-}
-input, button {
-  padding: 14px;
-  margin: 8px;
-  border-radius: 10px;
-  font-size: 16px;
-}
-button {
-  background: #9aa8ff;
-  border: 0;
-  font-weight: bold;
-}
-video {
-  width: 100%;
-  background: black;
-  border-radius: 12px;
-}
+body{margin:0;background:#080d1d;color:white;font-family:Arial,sans-serif;text-align:center;padding:20px}
+h1{color:#9aa8ff}
+.panel{max-width:1000px;margin:20px auto;background:#17213a;padding:20px;border-radius:16px}
+input,button{padding:12px;margin:6px;border-radius:8px;font-size:16px}
+button{background:#9aa8ff;border:0;font-weight:bold}
+video{width:100%;max-height:75vh;background:#000;margin-top:15px}
 </style>
 </head>
 <body>
-<h1>📱 My Phone → TV Mirror</h1>
+<h1>Mirrororo — TV Receiver</h1>
 <div class="panel">
-  <h2>TV Screen</h2>
-  <p id="status">Your TV receiver website is ready.</p>
-  <video id="screen" autoplay playsinline controls></video>
-  <p>Next: connect the Android sender app to stream your screen here.</p>
+<p>Enter the same room code as your phone.</p>
+<input id="room" value="MIRRORORO" maxlength="40">
+<button id="connect">Connect TV</button>
+<p id="status">Not connected</p>
+<video id="screen" autoplay playsinline controls></video>
 </div>
 <script>
-const status = document.getElementById("status");
-if (!("RTCPeerConnection" in window)) {
-  status.textContent =
-    "This browser may not support screen-stream playback.";
+const statusText=document.getElementById("status");
+const video=document.getElementById("screen");
+let ws=null,pc=null;
+
+function send(data){
+ if(ws && ws.readyState===WebSocket.OPEN)
+  ws.send(JSON.stringify(data));
 }
+
+function makePeer(){
+ pc=new RTCPeerConnection({
+  iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+ });
+ pc.ontrack=e=>{
+  if(e.streams[0]) video.srcObject=e.streams[0];
+  statusText.textContent="Video received";
+  video.play().catch(()=>{});
+ };
+ pc.onicecandidate=e=>{
+  if(e.candidate) send({
+   type:"candidate",
+   candidate:e.candidate.candidate,
+   sdpMid:e.candidate.sdpMid,
+   sdpMLineIndex:e.candidate.sdpMLineIndex
+  });
+ };
+ pc.onconnectionstatechange=()=>{
+  statusText.textContent="Connection: "+pc.connectionState;
+ };
+}
+
+document.getElementById("connect").onclick=()=>{
+ const room=document.getElementById("room").value.trim().toUpperCase();
+ if(!room){statusText.textContent="Enter a room code";return;}
+ if(ws) ws.close();
+ if(pc){pc.close();pc=null;}
+ video.srcObject=null;
+ statusText.textContent="Connecting to server...";
+ ws=new WebSocket("wss://mirrororo.onrender.com");
+
+ ws.onopen=()=>{
+  send({type:"join",room});
+ };
+ ws.onmessage=async e=>{
+  const m=JSON.parse(e.data);
+  try{
+   if(m.type==="joined")
+    statusText.textContent="Connected. Waiting for phone...";
+   if(m.type==="offer"){
+    if(!pc) makePeer();
+    await pc.setRemoteDescription({type:"offer",sdp:m.sdp});
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    send({type:"answer",sdp:answer.sdp});
+    statusText.textContent="Connecting video...";
+   }
+   if(m.type==="candidate" && pc && pc.remoteDescription){
+    await pc.addIceCandidate({
+     candidate:m.candidate,
+     sdpMid:m.sdpMid||null,
+     sdpMLineIndex:m.sdpMLineIndex
+    });
+   }
+   if(m.type==="peer-left"){
+    if(pc){pc.close();pc=null;}
+    video.srcObject=null;
+    statusText.textContent="Phone disconnected";
+   }
+  }catch(err){
+   statusText.textContent="Connection error: "+err.message;
+  }
+ };
+ ws.onerror=()=>statusText.textContent="Server connection error";
+ ws.onclose=()=>statusText.textContent="Server disconnected";
+};
 </script>
 </body>
 </html>
