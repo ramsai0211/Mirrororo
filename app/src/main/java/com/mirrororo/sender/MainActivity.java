@@ -1,3 +1,4 @@
+
 package com.mirrororo.sender;
 
 import android.app.Activity;
@@ -32,26 +33,29 @@ public class MainActivity extends Activity {
         status = new TextView(this);
         status.setTextSize(17);
         status.setGravity(Gravity.CENTER);
-        status.setText(
-                "\nRoom code: MIRRORORO\n\n" +
-                "Connect your TV receiver first."
-        );
+        status.setText("\nRoom code: MIRRORORO\n\nReady to test.");
 
         Button start = new Button(this);
         start.setText("Start screen sharing");
         start.setOnClickListener(v -> requestCapture());
 
+        Button test = new Button(this);
+        test.setText("Test WebRTC");
+        test.setOnClickListener(v ->
+                startActivity(new Intent(this, WebRtcTest.class)));
+
         layout.addView(title);
         layout.addView(status);
         layout.addView(start);
+        layout.addView(test);
 
         setContentView(layout);
     }
 
     private void requestCapture() {
         MediaProjectionManager manager =
-                (MediaProjectionManager) getSystemService(
-                        MEDIA_PROJECTION_SERVICE);
+                (MediaProjectionManager)
+                        getSystemService(MEDIA_PROJECTION_SERVICE);
 
         if (manager != null) {
             startActivityForResult(
@@ -67,9 +71,7 @@ public class MainActivity extends Activity {
             int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode != CAPTURE_REQUEST) {
-            return;
-        }
+        if (requestCode != CAPTURE_REQUEST) return;
 
         if (resultCode == RESULT_OK && data != null) {
             Intent service = new Intent(
@@ -78,7 +80,6 @@ public class MainActivity extends Activity {
             service.putExtra(
                     ScreenCaptureService.EXTRA_RESULT_CODE,
                     resultCode);
-
             service.putExtra(
                     ScreenCaptureService.EXTRA_RESULT_DATA,
                     data);
@@ -90,8 +91,8 @@ public class MainActivity extends Activity {
             }
 
             status.setText(
-                    "Screen permission granted.\n" +
-                    "Starting Mirrororo service...");
+                    "Screen permission granted.\n"
+                    + "Starting Mirrororo service...");
         } else {
             status.setText("Screen sharing permission denied.");
         }
