@@ -1,1 +1,59 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Phone TV Mirror</title>
+<style>
+body {
+  margin: 0;
+  background: #080d1d;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  padding: 24px;
+}
+h1 { color: #9aa8ff; }
+.panel {
+  background: #17213a;
+  padding: 24px;
+  border-radius: 18px;
+  max-width: 700px;
+  margin: 24px auto;
+}
+input, button {
+  padding: 14px;
+  margin: 8px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+button {
+  background: #9aa8ff;
+  border: 0;
+  font-weight: bold;
+}
+video {
+  width: 100%;
+  background: black;
+  border-radius: 12px;
+}
+</style>
+</head>
+<body>
+<h1>📱 My Phone → TV Mirror</h1>
+<div class="panel">
+  <h2>TV Screen</h2>
+  <p id="status">Your TV receiver website is ready.</p>
+  <video id="screen" autoplay playsinline controls></video>
+  <p>Next: connect the Android sender app to stream your screen here.</p>
+</div>
+<script>
+const status = document.getElementById("status");
+if (!("RTCPeerConnection" in window)) {
+  status.textContent =
+    "This browser may not support screen-stream playback.";
+}
+</script>
+</body>
+</html>
